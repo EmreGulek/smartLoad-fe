@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { Nav } from 'react-bootstrap';
+import { FaFileDownload } from 'react-icons/fa';
 
 /**
  * Left navigation sidebar.
@@ -14,6 +15,7 @@ export default function Sidebar() {
       </SidebarSection>
 
       <SidebarSection label="Planning">
+        <SidebarLink to="/cargo-importer" Icon={FaFileDownload} label="Cargo Importer" />
         <SidebarPlaceholder icon="bi-table" label="Manifest" phase="Phase 1" />
         <SidebarPlaceholder icon="bi-grid-3x3-gap" label="Load Plan" phase="Phase 3" />
         <SidebarPlaceholder icon="bi-speedometer2" label="CG Validation" phase="Phase 4" />
@@ -43,10 +45,14 @@ function SidebarSection({ label, children }) {
   );
 }
 
-function SidebarLink({ to, end, icon, label }) {
+function SidebarLink({ to, end, icon, Icon, label }) {
   return (
-    <Nav.Link as={NavLink} to={to} end={end}>
-      <i className={`bi ${icon} me-2`} />
+    <Nav.Link as={NavLink} to={to} end={end} className="d-flex align-items-center">
+      {Icon ? (
+        <Icon className="me-2 flex-shrink-0" aria-hidden size={18} />
+      ) : (
+        <i className={`bi ${icon} me-2`} aria-hidden />
+      )}
       {label}
     </Nav.Link>
   );

@@ -28,11 +28,11 @@ export default function HomePage() {
 
         <Col md={6} lg={4}>
           <ActionCard
-            icon="bi-cloud-upload"
-            title="New Load Plan"
-            description="Upload a cargo manifest (Excel) and generate a load plan."
-            cta={{ label: 'Available in Phase 1', variant: 'outline-secondary' }}
-            phase="Phase 1"
+            icon="bi-cloud-arrow-up"
+            title="Cargo Importer"
+            description="Upload a cargo manifest (Excel), preview parsed rows, then send to the planner when the API is ready."
+            cta={{ to: '/cargo-importer', label: 'Open Importer', variant: 'primary' }}
+            available
           />
         </Col>
 
