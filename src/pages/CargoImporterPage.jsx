@@ -2,7 +2,7 @@ import { Badge, Card } from 'react-bootstrap';
 import CargoImporterPanel from '../components/cargoImporter/CargoImporterPanel';
 
 /**
- * Cargo Importer — Excel manifest pick + local parse preview (Phase 1 UI shell).
+ * Cargo Importer — Excel or blank table, editable grid in-browser (Phase 1; API later).
  */
 export default function CargoImporterPage() {
   return (
@@ -11,12 +11,12 @@ export default function CargoImporterPage() {
         <div>
           <h2 className="mb-0">Cargo Importer</h2>
           <small className="text-muted aviation-mono">
-            Upload cargo manifest spreadsheets — preview only until API ingest lands
+            Import Excel or start blank — edit cells and rows/columns in the browser until API ingest lands
           </small>
         </div>
         <div className="d-flex gap-2">
           <Badge bg="info" text="dark">
-            Client-side parse
+            Client-side edit
           </Badge>
           <Badge bg="secondary">xlsx</Badge>
         </div>

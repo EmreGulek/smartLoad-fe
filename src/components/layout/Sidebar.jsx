@@ -1,6 +1,17 @@
 import { NavLink } from 'react-router-dom';
 import { Nav } from 'react-bootstrap';
-import { FaFileDownload } from 'react-icons/fa';
+import { BsGrid3X3Gap } from 'react-icons/bs';
+import {
+  FaClipboardList,
+  FaCog,
+  FaFileDownload,
+  FaFilePdf,
+  FaHome,
+  FaPlane,
+  FaTable,
+  FaTachometerAlt,
+  FaUsers,
+} from 'react-icons/fa';
 
 /**
  * Left navigation sidebar.
@@ -10,25 +21,25 @@ export default function Sidebar() {
   return (
     <aside className="smartload-sidebar">
       <SidebarSection label="Operations">
-        <SidebarLink to="/" end icon="bi-house-door" label="Home" />
-        <SidebarLink to="/viewer" icon="bi-airplane" label="B777F Viewer" />
+        <SidebarLink to="/" end Icon={FaHome} label="Home" />
+        <SidebarLink to="/viewer" Icon={FaPlane} label="B777F Viewer" />
       </SidebarSection>
 
       <SidebarSection label="Planning">
         <SidebarLink to="/cargo-importer" Icon={FaFileDownload} label="Cargo Importer" />
-        <SidebarPlaceholder icon="bi-table" label="Manifest" phase="Phase 1" />
-        <SidebarPlaceholder icon="bi-grid-3x3-gap" label="Load Plan" phase="Phase 3" />
-        <SidebarPlaceholder icon="bi-speedometer2" label="CG Validation" phase="Phase 4" />
+        <SidebarPlaceholder Icon={FaTable} label="Manifest" phase="Phase 1" />
+        <SidebarPlaceholder Icon={BsGrid3X3Gap} label="Load Plan" phase="Phase 3" />
+        <SidebarPlaceholder Icon={FaTachometerAlt} label="CG Validation" phase="Phase 4" />
       </SidebarSection>
 
       <SidebarSection label="Reports">
-        <SidebarPlaceholder icon="bi-file-earmark-pdf" label="LIR" phase="Phase 5" />
-        <SidebarPlaceholder icon="bi-clipboard-data" label="Load Sheet" phase="Phase 5" />
+        <SidebarPlaceholder Icon={FaFilePdf} label="LIR" phase="Phase 5" />
+        <SidebarPlaceholder Icon={FaClipboardList} label="Load Sheet" phase="Phase 5" />
       </SidebarSection>
 
       <SidebarSection label="Admin">
-        <SidebarPlaceholder icon="bi-people" label="Users" phase="Phase 6" />
-        <SidebarPlaceholder icon="bi-gear" label="Settings" phase="Phase 6" />
+        <SidebarPlaceholder Icon={FaUsers} label="Users" phase="Phase 6" />
+        <SidebarPlaceholder Icon={FaCog} label="Settings" phase="Phase 6" />
       </SidebarSection>
     </aside>
   );
@@ -45,23 +56,19 @@ function SidebarSection({ label, children }) {
   );
 }
 
-function SidebarLink({ to, end, icon, Icon, label }) {
+function SidebarLink({ to, end, Icon, label }) {
   return (
     <Nav.Link as={NavLink} to={to} end={end} className="d-flex align-items-center">
-      {Icon ? (
-        <Icon className="me-2 flex-shrink-0" aria-hidden size={18} />
-      ) : (
-        <i className={`bi ${icon} me-2`} aria-hidden />
-      )}
+      <Icon className="me-2 flex-shrink-0" aria-hidden size={18} />
       {label}
     </Nav.Link>
   );
 }
 
-function SidebarPlaceholder({ icon, label, phase }) {
+function SidebarPlaceholder({ Icon, label, phase }) {
   return (
     <Nav.Link disabled className="d-flex align-items-center">
-      <i className={`bi ${icon} me-2`} />
+      <Icon className="me-2 flex-shrink-0 text-secondary opacity-75" aria-hidden size={18} />
       <span className="flex-grow-1">{label}</span>
       <span className="badge bg-secondary opacity-75">{phase}</span>
     </Nav.Link>

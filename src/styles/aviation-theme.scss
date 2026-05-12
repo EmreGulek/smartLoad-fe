@@ -28,11 +28,10 @@ $enable-shadows:    true;
 $enable-gradients:  false;
 
 // =====================================================
-// 2. Bootstrap + bootstrap-icons import
+// 2. Bootstrap (icons: react-icons in components)
 // =====================================================
 
 @import 'bootstrap/scss/bootstrap';
-@import 'bootstrap-icons/font/bootstrap-icons';
 
 // =====================================================
 // 3. SmartLoad-specific utilities
@@ -175,4 +174,20 @@ html, body, #root {
   max-width: 460px;
   border-radius: 0.75rem;
   margin-top: 0.5rem;
+}
+
+// =====================================================
+// 7. Cargo Importer editable grid
+// =====================================================
+
+.cargo-importer-table .cargo-importer-cell-readonly {
+  min-width: 5.5rem;
+  min-height: 2rem;
+  line-height: 1.5;
+}
+
+.cargo-importer-table .cargo-importer-cell:focus {
+  position: relative;
+  z-index: 1;
+  box-shadow: inset 0 0 0 1px rgba($primary, 0.45);
 }
