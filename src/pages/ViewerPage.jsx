@@ -1,4 +1,5 @@
 import { Card, Badge, Row, Col } from 'react-bootstrap';
+import { FaInfoCircle } from 'react-icons/fa';
 import B777FViewer from '../components/viewer/B777FViewer';
 
 /**
@@ -30,8 +31,8 @@ export default function ViewerPage() {
 
       <Card>
         <Card.Body>
-          <Card.Title className="h6 mb-3">
-            <i className="bi bi-info-circle me-2" />
+          <Card.Title className="h6 mb-3 d-flex align-items-center">
+            <FaInfoCircle className="me-2 text-primary flex-shrink-0" aria-hidden size={18} />
             Contour Legend
           </Card.Title>
           <Row className="g-2 small">

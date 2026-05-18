@@ -37,7 +37,7 @@ export default function TopNavbar() {
           Phase 0 — Dev Build
         </Badge>
         <Button variant="outline-light" size="sm" onClick={handleLogout}>
-          Cikis
+          Sign Out
         </Button>
       </div>
     </Navbar>

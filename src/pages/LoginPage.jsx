@@ -41,7 +41,7 @@ export default function LoginPage() {
       setAuth({ token: data.token, user: data.user });
       navigate('/', { replace: true });
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || requestError?.response?.data || 'Giris basarisiz oldu. Lutfen bilgilerinizi kontrol edin.');
+      setError(requestError?.response?.data?.message || requestError?.response?.data || 'Sign in failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }
@@ -58,10 +58,10 @@ export default function LoginPage() {
         email: email.trim(),
         password,
       });
-      setSuccess('Kayit basarili. E-postana gelen 6 haneli kodu girerek hesabi aktive et.');
+      setSuccess('Account created. Enter the 6-digit code sent to your email to activate it.');
       setView('verify');
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || requestError?.response?.data || 'Kayit olusturulamadi.');
+      setError(requestError?.response?.data?.message || requestError?.response?.data || 'Could not create account.');
     } finally {
       setLoading(false);
     }
@@ -77,10 +77,10 @@ export default function LoginPage() {
         email: email.trim(),
         verificationCode: verificationCode.trim(),
       });
-      setSuccess('Hesap aktive edildi. Simdi giris yapabilirsin.');
+      setSuccess('Account activated. You can now sign in.');
       setView('login');
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || requestError?.response?.data || 'Kod dogrulama basarisiz.');
+      setError(requestError?.response?.data?.message || requestError?.response?.data || 'Code verification failed.');
     } finally {
       setLoading(false);
     }
@@ -94,9 +94,9 @@ export default function LoginPage() {
       await api.post('/auth/resend', null, {
         params: { email: email.trim() },
       });
-      setSuccess('Yeni kod e-postana gonderildi.');
+      setSuccess('A new code has been sent to your email.');
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || requestError?.response?.data || 'Kod tekrar gonderilemedi.');
+      setError(requestError?.response?.data?.message || requestError?.response?.data || 'Could not resend the code.');
     } finally {
       setLoading(false);
     }
@@ -125,7 +125,7 @@ export default function LoginPage() {
                       resetFeedback();
                     }}
                   >
-                    Giris Yap
+                    Sign In
                   </Button>
                   <Button
                     variant={view === 'signup' ? 'primary' : 'outline-primary'}
@@ -135,7 +135,7 @@ export default function LoginPage() {
                       resetFeedback();
                     }}
                   >
-                    Uye Ol
+                    Sign Up
                   </Button>
                   <Button
                     variant={view === 'verify' ? 'primary' : 'outline-primary'}
@@ -145,7 +145,7 @@ export default function LoginPage() {
                       resetFeedback();
                     }}
                   >
-                    Kod
+                    Verify
                   </Button>
                 </div>
                       </div>
@@ -163,7 +163,7 @@ export default function LoginPage() {
                 {view === 'login' && (
                   <Form onSubmit={handleLogin}>
                     <Form.Group className="mb-3" controlId="login-email">
-                      <Form.Label>E-Posta</Form.Label>
+                      <Form.Label>Email</Form.Label>
                       <Form.Control
                         type="email"
                         value={email}
@@ -174,7 +174,7 @@ export default function LoginPage() {
                     </Form.Group>
 
                     <Form.Group className="mb-4" controlId="login-password">
-                      <Form.Label>Sifre</Form.Label>
+                      <Form.Label>Password</Form.Label>
                       <Form.Control
                         type="password"
                         value={password}
@@ -193,10 +193,10 @@ export default function LoginPage() {
                       {loading ? (
                         <>
                           <Spinner animation="border" size="sm" className="me-2" />
-                          Giris yapiliyor...
+                          Signing in…
                         </>
                       ) : (
-                        'DEVAM EDIN'
+                        'CONTINUE'
                       )}
                     </Button>
                   </Form>
@@ -205,7 +205,7 @@ export default function LoginPage() {
                 {view === 'signup' && (
                   <Form onSubmit={handleSignup}>
                     <Form.Group className="mb-3" controlId="signup-username">
-                      <Form.Label>Kullanici Adi</Form.Label>
+                      <Form.Label>Username</Form.Label>
                       <Form.Control
                         type="text"
                         value={username}
@@ -217,7 +217,7 @@ export default function LoginPage() {
                     </Form.Group>
 
                     <Form.Group className="mb-3" controlId="signup-email">
-                      <Form.Label>E-Posta</Form.Label>
+                      <Form.Label>Email</Form.Label>
                       <Form.Control
                         type="email"
                         value={email}
@@ -228,7 +228,7 @@ export default function LoginPage() {
                     </Form.Group>
 
                     <Form.Group className="mb-4" controlId="signup-password">
-                      <Form.Label>Sifre</Form.Label>
+                      <Form.Label>Password</Form.Label>
                       <Form.Control
                         type="password"
                         value={password}
@@ -248,10 +248,10 @@ export default function LoginPage() {
                       {loading ? (
                         <>
                           <Spinner animation="border" size="sm" className="me-2" />
-                          Kayit olusturuluyor...
+                          Creating account…
                         </>
                       ) : (
-                        'UYE OL'
+                        'SIGN UP'
                       )}
                     </Button>
                   </Form>
@@ -260,7 +260,7 @@ export default function LoginPage() {
                 {view === 'verify' && (
                   <Form onSubmit={handleVerify}>
                     <Form.Group className="mb-3" controlId="verify-email">
-                      <Form.Label>E-Posta</Form.Label>
+                      <Form.Label>Email</Form.Label>
                       <Form.Control
                         type="email"
                         value={email}
@@ -271,7 +271,7 @@ export default function LoginPage() {
                     </Form.Group>
 
                     <Form.Group className="mb-3" controlId="verify-code">
-                      <Form.Label>Dogrulama Kodu</Form.Label>
+                      <Form.Label>Verification Code</Form.Label>
                       <Form.Control
                         type="text"
                         value={verificationCode}
@@ -293,10 +293,10 @@ export default function LoginPage() {
                         {loading ? (
                           <>
                             <Spinner animation="border" size="sm" className="me-2" />
-                            Dogrulaniyor...
+                            Verifying…
                           </>
                         ) : (
-                          'HESABI AKTIVE ET'
+                          'ACTIVATE ACCOUNT'
                         )}
                       </Button>
                       <Button
@@ -305,9 +305,9 @@ export default function LoginPage() {
                         className="fw-semibold"
                         disabled={loading || !email.trim()}
                         onClick={handleResendCode}
-                       
+
                       >
-                        KODU TEKRAR GONDER
+                        RESEND CODE
                       </Button>
                     </div>
                   </Form>

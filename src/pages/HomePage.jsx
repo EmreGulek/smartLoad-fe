@@ -1,5 +1,13 @@
 import { Link } from 'react-router-dom';
 import { Row, Col, Card, Button, Badge } from 'react-bootstrap';
+import {
+  FaFileDownload,
+  FaFilePdf,
+  FaHistory,
+  FaPlane,
+  FaTachometerAlt,
+  FaUserShield,
+} from 'react-icons/fa';
 
 /**
  * Landing page with quick-action cards for each operational area.
@@ -18,7 +26,7 @@ export default function HomePage() {
       <Row className="g-4">
         <Col md={6} lg={4}>
           <ActionCard
-            icon="bi-airplane"
+            Icon={FaPlane}
             title="B777F Viewer"
             description="Interactive 3D visualization of the main deck and lower deck cargo positions."
             cta={{ to: '/viewer', label: 'Open Viewer', variant: 'primary' }}
@@ -28,17 +36,17 @@ export default function HomePage() {
 
         <Col md={6} lg={4}>
           <ActionCard
-            icon="bi-cloud-upload"
-            title="New Load Plan"
-            description="Upload a cargo manifest (Excel) and generate a load plan."
-            cta={{ label: 'Available in Phase 1', variant: 'outline-secondary' }}
-            phase="Phase 1"
+            Icon={FaFileDownload}
+            title="Cargo Importer"
+            description="Upload a cargo manifest (Excel), preview parsed rows, then send to the planner when the API is ready."
+            cta={{ to: '/cargo-importer', label: 'Open Importer', variant: 'primary' }}
+            available
           />
         </Col>
 
         <Col md={6} lg={4}>
           <ActionCard
-            icon="bi-clock-history"
+            Icon={FaHistory}
             title="Recent Plans"
             description="View previously generated load plans and reports."
             cta={{ label: 'Available in Phase 1', variant: 'outline-secondary' }}
@@ -48,7 +56,7 @@ export default function HomePage() {
 
         <Col md={6} lg={4}>
           <ActionCard
-            icon="bi-speedometer2"
+            Icon={FaTachometerAlt}
             title="CG Validation"
             description="Real-time center of gravity & MAC% verification against operating envelope."
             cta={{ label: 'Available in Phase 4', variant: 'outline-secondary' }}
@@ -58,7 +66,7 @@ export default function HomePage() {
 
         <Col md={6} lg={4}>
           <ActionCard
-            icon="bi-file-earmark-pdf"
+            Icon={FaFilePdf}
             title="LIR / Load Sheet"
             description="Generate Load Instruction Report and Weight & Balance Manifest as PDF."
             cta={{ label: 'Available in Phase 5', variant: 'outline-secondary' }}
@@ -68,7 +76,7 @@ export default function HomePage() {
 
         <Col md={6} lg={4}>
           <ActionCard
-            icon="bi-shield-lock"
+            Icon={FaUserShield}
             title="Sign In"
             description="Loadmaster authentication via JWT (planned)."
             cta={{ label: 'Available in Phase 6', variant: 'outline-secondary' }}
@@ -80,12 +88,12 @@ export default function HomePage() {
   );
 }
 
-function ActionCard({ icon, title, description, cta, available = false, phase }) {
+function ActionCard({ Icon, title, description, cta, available = false, phase }) {
   return (
     <Card className="h-100 shadow-sm">
       <Card.Body className="d-flex flex-column">
         <Card.Title className="d-flex align-items-center mb-2">
-          <i className={`bi ${icon} text-primary me-2`} style={{ fontSize: '1.5rem' }} />
+          <Icon className="text-primary me-2 flex-shrink-0" aria-hidden size={26} />
           <span className="flex-grow-1">{title}</span>
           {!available && phase && (
             <Badge bg="light" text="dark" className="text-uppercase">
