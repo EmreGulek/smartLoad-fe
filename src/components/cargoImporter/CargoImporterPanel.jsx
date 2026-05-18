@@ -1,15 +1,58 @@
-import { useCallback, useState } from 'react';
-import { Alert, Button, Form, Table } from 'react-bootstrap';
-import { FaFolderOpen, FaMinus, FaPen, FaPlus, FaTable, FaTrash } from 'react-icons/fa';
+import { useCallback, useMemo, useState } from 'react';
+import { Alert, Button, Form, Table, Spinner } from 'react-bootstrap';
+import { FaFolderOpen, FaMinus, FaPen, FaPlus, FaTable, FaTrash, FaCheck, FaTimes } from 'react-icons/fa';
 import { RiFileExcel2Line } from 'react-icons/ri';
 import * as XLSX from 'xlsx';
+import { api } from '../../services/api';
+import ColumnMappingDialog from './ColumnMappingDialog';
 
 /** Max rows read from Excel on first import (full sheets can be huge). */
-const MAX_IMPORT_ROWS = 150;
+const MAX_IMPORT_ROWS = 500;
 /** Max columns read from Excel on first import. */
 const MAX_IMPORT_COLS = 24;
 const DEFAULT_COLS = 6;
 const DEFAULT_ROWS = 4;
+
+/**
+ * Fallback size-bucket thresholds (m³). The backend echoes the canonical defaults on every
+ * validation response as `statistics.sizeThresholdsM3`; these constants are only used until
+ * that response arrives (or if the backend ever omits the field).
+ */
+const FALLBACK_THRESHOLDS_M3 = { small: 0.5, medium: 1.5, large: 4.0 };
+
+/**
+ * Map an average density (kg/m³) to a human-readable band + a Bootstrap colour variant.
+ * Thresholds are operational rules of thumb — high-volume/low-density (insulation, garments)
+ * vs high-density (metal, mineral). Loadmaster cue, not a hard limit.
+ */
+function densityBand(density) {
+  if (density == null || isNaN(density)) return { label: 'n/a', variant: 'secondary' };
+  if (density < 100) return { label: 'Light', variant: 'info' };
+  if (density < 300) return { label: 'Normal', variant: 'success' };
+  if (density < 600) return { label: 'Heavy', variant: 'warning' };
+  return { label: 'Very heavy', variant: 'danger' };
+}
+
+/**
+ * Bootstrap colour for a Special Handling Code badge. DG is always red because it's the most
+ * operationally consequential. The full IATA SHC list is much longer; we only colour the ones
+ * the backend currently validates (`VALID_SHC_CODES` in ManifestValidationService).
+ */
+function shcBadgeVariant(code) {
+  switch ((code || '').toUpperCase()) {
+    case 'DG':
+      return 'danger';
+    case 'AVI':
+    case 'PER':
+      return 'warning';
+    case 'VAL':
+      return 'info';
+    case 'FRA':
+      return 'secondary';
+    default:
+      return 'secondary';
+  }
+}
 
 /**
  * Pad rows to a uniform width (capped at MAX_IMPORT_COLS).
@@ -32,7 +75,7 @@ function normalizeGrid(rows) {
 }
 
 /**
- * Excel ingest + grid: read-only until user clicks Düzenle; then cells and row/column tools work (client-side only).
+ * Excel ingest + grid: read-only until user clicks Edit; then cells and row/column tools work (client-side only).
  */
 export default function CargoImporterPanel() {
   const [fileName, setFileName] = useState('');
@@ -40,6 +83,18 @@ export default function CargoImporterPanel() {
   const [sheetName, setSheetName] = useState('');
   const [grid, setGrid] = useState(/** @type {string[][]} */ ([]));
   const [editMode, setEditMode] = useState(false);
+  const [validationResult, setValidationResult] = useState(null);
+  const [isValidating, setIsValidating] = useState(false);
+  const [showMappingDialog, setShowMappingDialog] = useState(false);
+  const [columnMapping, setColumnMapping] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedManifest, setSavedManifest] = useState(null);
+  // Size-bucket thresholds: `thresholdsM3` is what's currently applied; `defaultThresholds`
+  // is whatever the backend last echoed (used by the "Reset to defaults" button). Both stay in
+  // sync on the first validation; only `thresholdsM3` moves when the user edits.
+  const [thresholdsM3, setThresholdsM3] = useState(FALLBACK_THRESHOLDS_M3);
+  const [defaultThresholds, setDefaultThresholds] = useState(FALLBACK_THRESHOLDS_M3);
+  const [editingThresholds, setEditingThresholds] = useState(false);
 
   const reset = useCallback(() => {
     setFileName('');
@@ -47,7 +102,190 @@ export default function CargoImporterPanel() {
     setSheetName('');
     setGrid([]);
     setEditMode(false);
+    setValidationResult(null);
+    setThresholdsM3(FALLBACK_THRESHOLDS_M3);
+    setDefaultThresholds(FALLBACK_THRESHOLDS_M3);
+    setEditingThresholds(false);
+    setSavedManifest(null);
   }, []);
+
+  const handleMappingConfirmed = useCallback(async (mapping) => {
+    setColumnMapping(mapping);
+    setShowMappingDialog(false);
+    setIsValidating(true);
+    setError('');
+    setValidationResult(null);
+
+    try {
+      // Extract headers and data rows
+      const headers = grid.length > 0 ? grid[0] : [];
+      const rows = grid.length > 1 ? grid.slice(1) : [];
+
+      // Log for diagnostics
+      console.log('📤 Validation Request:', {
+        headerCount: headers.length,
+        rowCount: rows.length,
+        mapping,
+        firstRow: rows[0],
+      });
+
+      const payload = {
+        headers,
+        rows: rows.map((r) => r.slice(0, headers.length)),
+        columnMapping: mapping, // Send mapping info to backend
+      };
+
+      const response = await api.post('/manifests/validate-and-preview', payload);
+
+      console.log('📥 Validation Response:', response.data);
+
+      setValidationResult(response.data);
+      // Sync the size-bucket thresholds with whatever the backend declared as default; the
+      // user can still override afterwards via "Edit thresholds".
+      const backendThresholds = response.data?.statistics?.sizeThresholdsM3;
+      if (
+        backendThresholds &&
+        backendThresholds.small != null &&
+        backendThresholds.medium != null &&
+        backendThresholds.large != null
+      ) {
+        const synced = {
+          small: Number(backendThresholds.small),
+          medium: Number(backendThresholds.medium),
+          large: Number(backendThresholds.large),
+        };
+        setDefaultThresholds(synced);
+        setThresholdsM3(synced);
+      }
+      setEditingThresholds(false);
+      setEditMode(false);
+    } catch (err) {
+      const errorMsg = err.response?.data?.message ||
+                       err.response?.data?.error ||
+                       err.message ||
+                       'Validation failed. Please check your connection.';
+      console.error('❌ Validation Error:', {
+        status: err.response?.status,
+        message: errorMsg,
+        error: err.response?.data
+      });
+      setError(errorMsg);
+    } finally {
+      setIsValidating(false);
+    }
+  }, [grid]);
+
+  const handleCommit = useCallback(() => {
+    // Show column mapping dialog first
+    setShowMappingDialog(true);
+  }, []);
+
+  /**
+   * Recompute size buckets client-side using the currently-applied thresholds and the package
+   * list the backend already returned. This is what makes the threshold editor feel live —
+   * no request round-trips. Falls back to the backend's pre-computed buckets if the package
+   * list is missing for any reason.
+   */
+  const sizeBuckets = useMemo(() => {
+    const pkgs = validationResult?.packages;
+    if (!Array.isArray(pkgs) || pkgs.length === 0) {
+      return {
+        small: validationResult?.statistics?.sizeSmall ?? 0,
+        medium: validationResult?.statistics?.sizeMedium ?? 0,
+        large: validationResult?.statistics?.sizeLarge ?? 0,
+        oversize: validationResult?.statistics?.sizeOversize ?? 0,
+      };
+    }
+    // Threshold inputs are m³; backend persists package dimensions in mm. 1 m³ = 10⁹ mm³.
+    const smallMm3 = (Number(thresholdsM3.small) || 0) * 1_000_000_000;
+    const mediumMm3 = (Number(thresholdsM3.medium) || 0) * 1_000_000_000;
+    const largeMm3 = (Number(thresholdsM3.large) || 0) * 1_000_000_000;
+    let s = 0, m = 0, l = 0, o = 0;
+    for (const pkg of pkgs) {
+      const volPerPieceMm3 =
+        (Number(pkg.lengthMm) || 0) *
+        (Number(pkg.widthMm) || 0) *
+        (Number(pkg.heightMm) || 0);
+      const pcs = Number(pkg.pieces) || 0;
+      if (volPerPieceMm3 < smallMm3) s += pcs;
+      else if (volPerPieceMm3 < mediumMm3) m += pcs;
+      else if (volPerPieceMm3 < largeMm3) l += pcs;
+      else o += pcs;
+    }
+    return { small: s, medium: m, large: l, oversize: o };
+  }, [validationResult, thresholdsM3]);
+
+  const thresholdsCustomized =
+    Number(thresholdsM3.small) !== Number(defaultThresholds.small) ||
+    Number(thresholdsM3.medium) !== Number(defaultThresholds.medium) ||
+    Number(thresholdsM3.large) !== Number(defaultThresholds.large);
+
+  const handleSaveToDatabase = useCallback(async () => {
+    if (!validationResult || !validationResult.validated) {
+      setError('Validation must pass before saving');
+      return;
+    }
+    if (!columnMapping || Object.keys(columnMapping).length === 0) {
+      setError('Column mapping is required before saving');
+      return;
+    }
+
+    setIsSaving(true);
+    setError('');
+
+    try {
+      // Persist the size buckets as currently rendered (which may be a client-side override
+      // of the backend's defaults) along with the thresholds that produced them. This way a
+      // saved manifest carries an audit trail of which thresholds the loadmaster chose.
+      const enrichedValidation = {
+        ...validationResult,
+        statistics: {
+          ...validationResult.statistics,
+          sizeSmall: sizeBuckets.small,
+          sizeMedium: sizeBuckets.medium,
+          sizeLarge: sizeBuckets.large,
+          sizeOversize: sizeBuckets.oversize,
+          sizeThresholdsM3: {
+            small: Number(thresholdsM3.small) || 0,
+            medium: Number(thresholdsM3.medium) || 0,
+            large: Number(thresholdsM3.large) || 0,
+          },
+        },
+      };
+
+      const headers = grid.length > 0 ? grid[0] : [];
+      const dataRows = grid.length > 1 ? grid.slice(1) : [];
+
+      const payload = {
+        validationResult: enrichedValidation,
+        fileName: fileName || `Manifest-${new Date().toISOString().split('T')[0]}`,
+        sourceGrid: {
+          sheetName: sheetName || 'Sheet1',
+          headers,
+          rows: dataRows.map((r) => r.slice(0, headers.length)),
+        },
+        columnMapping,
+      };
+
+      console.log('💾 Saving manifest to database...', payload);
+
+      const response = await api.post('/manifests/save', payload);
+
+      console.log('✅ Manifest saved:', response.data);
+
+      setSavedManifest(response.data);
+      setError('');
+    } catch (err) {
+      const errorMsg = err.response?.data?.error ||
+                       err.response?.data?.message ||
+                       err.message ||
+                       'Failed to save manifest';
+      console.error('❌ Save error:', errorMsg);
+      setError(`Database save failed: ${errorMsg}`);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [validationResult, fileName, sizeBuckets, thresholdsM3, grid, sheetName, columnMapping]);
 
   const startBlankTable = useCallback(() => {
     setError('');
@@ -196,7 +434,16 @@ export default function CargoImporterPanel() {
 
       {error && (
         <Alert variant="danger" dismissible onClose={() => setError('')}>
-          {error}
+          <strong>Error: </strong>{error}
+          <div className="small text-muted mt-2">
+            <strong>Troubleshooting:</strong>
+            <ul className="mb-0 mt-1">
+              <li>1. Open the browser console (F12 → Console) and read the error.</li>
+              <li>2. Check the request/response in the Network tab.</li>
+              <li>3. Confirm the backend is running (terminal shows "Started SmartLoadApplication").</li>
+              <li>4. Re-check the column mapping — did you pick the right columns?</li>
+            </ul>
+          </div>
         </Alert>
       )}
 
@@ -205,21 +452,41 @@ export default function CargoImporterPanel() {
           <div className="cargo-importer-table-toolbar bg-body-secondary border-bottom px-3 py-2 d-flex flex-wrap align-items-center justify-content-between gap-2">
             <span className="small text-muted mb-0">
               {editMode
-                ? 'Düzenleme modu: hücreleri ve satır/sütunları değiştirebilirsiniz.'
-                : 'Önizleme modu: tabloyu değiştirmek için Düzenle butonuna basın.'}
+                ? 'Edit mode: cells and rows/columns are editable.'
+                : 'Preview mode: click Edit to modify the table.'}
             </span>
             <div className="d-flex align-items-center gap-2 flex-shrink-0">
               <Button variant="outline-secondary" size="sm" onClick={reset}>
-                Tümünü temizle
+                Clear all
               </Button>
               {editMode ? (
-                <Button variant="outline-secondary" size="sm" onClick={() => setEditMode(false)}>
-                  Düzenlemeyi bitir
-                </Button>
+                <>
+                  <Button variant="outline-secondary" size="sm" onClick={() => setEditMode(false)}>
+                    Finish editing
+                  </Button>
+                  <Button
+                    variant="success"
+                    size="sm"
+                    onClick={handleCommit}
+                    disabled={isValidating}
+                  >
+                    {isValidating ? (
+                      <>
+                        <Spinner animation="border" size="sm" className="me-2" />
+                        Validating…
+                      </>
+                    ) : (
+                      <>
+                        <FaCheck className="me-1" aria-hidden size={13} />
+                        Validate &amp; Statistics
+                      </>
+                    )}
+                  </Button>
+                </>
               ) : (
                 <Button variant="primary" size="sm" onClick={() => setEditMode(true)}>
                   <FaPen className="me-1" aria-hidden size={13} />
-                  Düzenle
+                  Edit
                 </Button>
               )}
             </div>
@@ -228,17 +495,17 @@ export default function CargoImporterPanel() {
           {editMode && (
             <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 px-2 py-2 border-bottom bg-body-tertiary">
               <span className="small text-muted">
-                Satır eklemek için satır sonundaki +, sütun eklemek için başlıktaki + kullanın (en fazla {MAX_IMPORT_ROWS}×{MAX_IMPORT_COLS} içe aktarım; şu an {rowCount}×{colCount}).
+                Use the + at the end of a row to add a row, and the + in the header to add a column (import cap: {MAX_IMPORT_ROWS}×{MAX_IMPORT_COLS}; currently {rowCount}×{colCount}).
               </span>
               <Button
                 variant="outline-secondary"
                 size="sm"
                 onClick={removeLastColumn}
                 disabled={colCount <= 1}
-                title="Son sütunu kaldır"
+                title="Remove last column"
               >
                 <FaMinus className="me-1" aria-hidden size={14} />
-                Son sütun
+                Last column
               </Button>
             </div>
           )}
@@ -256,14 +523,14 @@ export default function CargoImporterPanel() {
                     </th>
                   ))}
                   {editMode && (
-                    <th className="text-center p-1" style={{ width: 44 }} title="Sütun ekle">
+                    <th className="text-center p-1" style={{ width: 44 }} title="Add column">
                       <Button
                         variant="outline-primary"
                         size="sm"
                         className="px-2 py-0 lh-sm"
                         disabled={colCount >= MAX_IMPORT_COLS}
                         onClick={addColumn}
-                        aria-label="Sütun ekle"
+                        aria-label="Add column"
                       >
                         <FaPlus aria-hidden size={14} />
                       </Button>
@@ -282,7 +549,7 @@ export default function CargoImporterPanel() {
                             variant="link"
                             size="sm"
                             className="text-danger p-0 lh-1"
-                            title="Satırı sil"
+                            title="Delete row"
                             disabled={rowCount <= 1}
                             onClick={() => removeRow(ri)}
                           >
@@ -299,7 +566,7 @@ export default function CargoImporterPanel() {
                             value={cell}
                             onChange={(e) => updateCell(ri, ci, e.target.value)}
                             className="border-0 rounded-0 shadow-none form-control-sm aviation-mono cargo-importer-cell"
-                            aria-label={`Satır ${ri + 1}, sütun ${ci + 1}`}
+                            aria-label={`Row ${ri + 1}, column ${ci + 1}`}
                           />
                         ) : (
                           <span
@@ -317,10 +584,10 @@ export default function CargoImporterPanel() {
                           variant="outline-primary"
                           size="sm"
                           className="px-2 py-0 lh-sm"
-                          title="Bu satırdan sonra yeni satır ekle"
+                          title="Add a new row below this one"
                           disabled={rowCount >= MAX_IMPORT_ROWS}
                           onClick={() => addRowAfter(ri)}
-                          aria-label={`Satır ${ri + 1} sonrasına satır ekle`}
+                          aria-label={`Add a row after row ${ri + 1}`}
                         >
                           <FaPlus aria-hidden size={14} />
                         </Button>
@@ -332,6 +599,328 @@ export default function CargoImporterPanel() {
             </Table>
           </div>
         </div>
+      )}
+
+      {/* Validation Result Preview */}
+      {validationResult && (
+        <div className="mt-4">
+          <div className="border rounded overflow-hidden">
+            <div className="bg-body-secondary border-bottom px-3 py-2">
+              <h6 className="mb-0">
+                {validationResult.validated ? (
+                  <>
+                    <FaCheck className="text-success me-2" />
+                    Validation passed
+                  </>
+                ) : (
+                  <>
+                    <FaTimes className="text-danger me-2" />
+                    Validation failed
+                  </>
+                )}
+              </h6>
+            </div>
+
+            {/* Statistics Cards */}
+            {validationResult.statistics && (
+              <div className="p-3">
+                <div className="row g-2 mb-3">
+                  <div className="col-md-3">
+                    <div className="card border-0 bg-light">
+                      <div className="card-body p-2">
+                        <small className="text-muted">Total pieces</small>
+                        <h5 className="mb-0">{validationResult.statistics.totalPieces}</h5>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="col-md-3">
+                    <div className="card border-0 bg-light">
+                      <div className="card-body p-2">
+                        <small className="text-muted">Weight (kg)</small>
+                        <h5 className="mb-0">{validationResult.statistics.totalWeightKg?.toFixed(1)}</h5>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="col-md-3">
+                    <div className="card border-0 bg-light">
+                      <div className="card-body p-2">
+                        <small className="text-muted">Volume</small>
+                        <h5 className="mb-0">{(validationResult.statistics.totalVolumeMm3 / 1_000_000_000)?.toFixed(2)} m³</h5>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="col-md-3">
+                    <div className="card border-0 bg-light">
+                      <div className="card-body p-2">
+                        <small className="text-muted">Capacity vs B777F</small>
+                        <h5 className={`mb-0 ${validationResult.statistics.capacityPercentage > 100 ? 'text-danger' : ''}`}>
+                          {validationResult.statistics.capacityPercentage?.toFixed(1)}%
+                        </h5>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Average density — single-row banner with a verbal band */}
+                {validationResult.statistics.averageDensity != null && (
+                  <div className="mb-3 p-2 bg-light rounded d-flex align-items-center justify-content-between flex-wrap gap-2">
+                    <div>
+                      <small className="text-muted">Average density</small>
+                      <div>
+                        <strong className="fs-6">
+                          {validationResult.statistics.averageDensity.toFixed(1)}
+                        </strong>{' '}
+                        <small className="text-muted">kg/m³</small>
+                      </div>
+                    </div>
+                    <span className={`badge bg-${densityBand(validationResult.statistics.averageDensity).variant}`}>
+                      {densityBand(validationResult.statistics.averageDensity).label}
+                    </span>
+                  </div>
+                )}
+
+                <hr className="my-2" />
+
+                {/* Destination Breakdown */}
+                {validationResult.statistics.destinationBreakdown && Object.keys(validationResult.statistics.destinationBreakdown).length > 0 && (
+                  <div className="mb-3">
+                    <small className="fw-bold">Destination breakdown</small>
+                    <div className="d-flex flex-wrap gap-2 mt-2">
+                      {Object.entries(validationResult.statistics.destinationBreakdown).map(([dest, count]) => (
+                        <span key={dest} className="badge bg-info">{dest}: {count}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Special Handling Codes — only shown when the manifest actually has SHC entries.
+                    DG is highlighted in red because it drives Faz 3 segregation rules. */}
+                {validationResult.statistics.specialHandlingBreakdown &&
+                  Object.keys(validationResult.statistics.specialHandlingBreakdown).length > 0 && (
+                    <div className="mb-3">
+                      <small className="fw-bold">Special handling codes</small>
+                      <div className="d-flex flex-wrap gap-2 mt-2">
+                        {Object.entries(validationResult.statistics.specialHandlingBreakdown).map(([code, count]) => (
+                          <span key={code} className={`badge bg-${shcBadgeVariant(code)}`}>
+                            {code}: {count}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                {/* Size Distribution — thresholds are user-adjustable; recompute is client-side */}
+                <div className="mb-3">
+                  <div className="d-flex justify-content-between align-items-center">
+                    <small className="fw-bold">
+                      Size distribution
+                      {thresholdsCustomized && (
+                        <span className="ms-2 badge bg-info text-dark fw-normal">customized</span>
+                      )}
+                    </small>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="p-0 text-decoration-none"
+                      onClick={() => setEditingThresholds((v) => !v)}
+                    >
+                      {editingThresholds ? 'Close' : 'Edit thresholds'}
+                    </Button>
+                  </div>
+
+                  {editingThresholds && (
+                    <div className="border rounded p-2 mt-2 mb-2 bg-light">
+                      <div className="row g-2 align-items-end">
+                        <div className="col-12 col-md">
+                          <label className="form-label small mb-1">Small &lt;</label>
+                          <div className="input-group input-group-sm">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              className="form-control"
+                              value={thresholdsM3.small}
+                              onChange={(e) =>
+                                setThresholdsM3((t) => ({
+                                  ...t,
+                                  small: e.target.value === '' ? 0 : parseFloat(e.target.value),
+                                }))
+                              }
+                              aria-label="Small upper bound (m³)"
+                            />
+                            <span className="input-group-text">m³</span>
+                          </div>
+                        </div>
+                        <div className="col-12 col-md">
+                          <label className="form-label small mb-1">Medium &lt;</label>
+                          <div className="input-group input-group-sm">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              className="form-control"
+                              value={thresholdsM3.medium}
+                              onChange={(e) =>
+                                setThresholdsM3((t) => ({
+                                  ...t,
+                                  medium: e.target.value === '' ? 0 : parseFloat(e.target.value),
+                                }))
+                              }
+                              aria-label="Medium upper bound (m³)"
+                            />
+                            <span className="input-group-text">m³</span>
+                          </div>
+                        </div>
+                        <div className="col-12 col-md">
+                          <label className="form-label small mb-1">Large &lt;</label>
+                          <div className="input-group input-group-sm">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              className="form-control"
+                              value={thresholdsM3.large}
+                              onChange={(e) =>
+                                setThresholdsM3((t) => ({
+                                  ...t,
+                                  large: e.target.value === '' ? 0 : parseFloat(e.target.value),
+                                }))
+                              }
+                              aria-label="Large upper bound (m³)"
+                            />
+                            <span className="input-group-text">m³</span>
+                          </div>
+                        </div>
+                        <div className="col-12 col-md-auto">
+                          <Button
+                            variant="outline-secondary"
+                            size="sm"
+                            onClick={() => setThresholdsM3(defaultThresholds)}
+                            disabled={!thresholdsCustomized}
+                          >
+                            Reset to defaults
+                          </Button>
+                        </div>
+                      </div>
+                      <small className="text-muted d-block mt-2">
+                        Thresholds apply to a single piece's volume (L×W×H). Oversize = anything above the Large threshold.
+                        Defaults are ULD-oriented (LD3 ≈ 1.5 m³, PMC pallet ≈ 4 m³).
+                      </small>
+                    </div>
+                  )}
+
+                  <div className="d-flex flex-wrap gap-2 mt-2">
+                    <span className="badge bg-secondary">Small: {sizeBuckets.small}</span>
+                    <span className="badge bg-secondary">Medium: {sizeBuckets.medium}</span>
+                    <span className="badge bg-secondary">Large: {sizeBuckets.large}</span>
+                    <span className="badge bg-secondary">Oversize: {sizeBuckets.oversize}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Error List */}
+            {validationResult.issues && validationResult.issues.length > 0 && (
+              <div className="p-3 border-top bg-light">
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                  <small className="fw-bold">
+                    Validation issues ({validationResult.issues.length})
+                  </small>
+                  <small className="text-muted">
+                    ERROR: {validationResult.issues.filter(i => i.severity === 'ERROR').length} |
+                    WARNING: {validationResult.issues.filter(i => i.severity === 'WARNING').length}
+                  </small>
+                </div>
+                <div className="list-group list-group-sm mt-2" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                  {validationResult.issues.slice(0, 20).map((issue, idx) => (
+                    <div key={idx} className={`list-group-item py-2 px-2 border-0 small ${issue.severity === 'ERROR' ? 'bg-danger-light' : 'bg-warning-light'}`}>
+                      <div className="d-flex gap-2">
+                        <span className="badge" style={{
+                          backgroundColor: issue.severity === 'ERROR' ? '#dc3545' : '#ffc107',
+                          color: issue.severity === 'ERROR' ? 'white' : 'black',
+                          minWidth: '50px',
+                          textAlign: 'center'
+                        }}>
+                          Row {issue.rowNumber}
+                        </span>
+                        <div className="flex-grow-1">
+                          <strong>{issue.columnName}</strong>: {issue.message}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {validationResult.issues.length > 20 && (
+                  <div className="mt-2 text-muted">
+                    <small>… {validationResult.issues.length - 20} more issues</small>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Save Success Message */}
+            {savedManifest && (
+              <div className="p-3 border-top bg-success-light border-success">
+                <div className="d-flex align-items-center gap-2">
+                  <FaCheck className="text-success" size={18} />
+                  <div>
+                    <strong>Saved successfully</strong>
+                    <div className="small text-muted mt-1">
+                      Manifest ID: <code>{savedManifest.id}</code>
+                      <br />
+                      File: {savedManifest.fileName}
+                      <br />
+                      Pieces: {savedManifest.totalPieces} | Weight: {savedManifest.totalWeightKg?.toFixed(1)} kg
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="p-3 border-top d-flex gap-2">
+              <Button
+                variant="outline-secondary"
+                size="sm"
+                onClick={() => {
+                  setValidationResult(null);
+                  setSavedManifest(null);
+                }}
+              >
+                Back to edit
+              </Button>
+              {validationResult.validated && !savedManifest && (
+                <Button
+                  variant="success"
+                  size="sm"
+                  onClick={handleSaveToDatabase}
+                  disabled={isSaving}
+                >
+                  {isSaving ? (
+                    <>
+                      <Spinner animation="border" size="sm" className="me-2" />
+                      Saving…
+                    </>
+                  ) : (
+                    <>
+                      <FaCheck className="me-1" size={13} />
+                      Save to database
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Column Mapping Dialog */}
+      {showMappingDialog && (
+        <ColumnMappingDialog
+          headers={grid.length > 0 ? grid[0] : []}
+          onConfirm={handleMappingConfirmed}
+          onCancel={() => setShowMappingDialog(false)}
+        />
       )}
     </div>
   );

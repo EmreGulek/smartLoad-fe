@@ -18,7 +18,7 @@ Open http://localhost:5173
 - **React 18** (JSX, no TypeScript)
 - **Vite 5** — dev server + build
 - **Bootstrap 5** + **react-bootstrap** — UI components
-- **bootstrap-icons** — icon set
+- **react-icons** — icon set (Font Awesome, Remix, Bootstrap glyph packs, etc.)
 - **SCSS** (via `sass`) — Bootstrap theme variable override
 - **react-three-fiber** + **@react-three/drei** — 3D viewer
 - **Zustand** — global state
