@@ -1,5 +1,9 @@
 /**
- * B777F contour specifications.
+ * B777F contour specifications — PHASE 0 LEGACY, NO LONGER USED BY VIEWER.
+ *
+ * Phase 2: B777FViewer now fetches contours from the backend (uld_type table).
+ * This file is kept as a reference / fallback. Do not import in new code;
+ * use utils/aircraftCoords.js + services/api.js fetchAircraftConfig() instead.
  *
  * Source: raw/docs/B777F_Inspection_System.txt (original standalone viewer)
  *         raw/docs/B777F Main Deck ULD ... .pptx (geometric truth source)

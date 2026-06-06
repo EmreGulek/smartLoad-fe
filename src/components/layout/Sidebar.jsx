@@ -28,7 +28,7 @@ export default function Sidebar() {
       <SidebarSection label="Planning">
         <SidebarLink to="/cargo-importer" Icon={FaFileDownload} label="Cargo Importer" />
         <SidebarLink to="/manifests" Icon={FaTable} label="Manifests" />
-        <SidebarPlaceholder Icon={BsGrid3X3Gap} label="Load Plan" phase="Phase 3" />
+        <SidebarLink to="/load-plan" Icon={BsGrid3X3Gap} label="Load Plan" />
         <SidebarPlaceholder Icon={FaTachometerAlt} label="CG Validation" phase="Phase 4" />
       </SidebarSection>
 

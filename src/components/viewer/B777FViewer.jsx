@@ -1,146 +1,138 @@
 /**
- * B777F 3D Viewer — react-three-fiber port of the original standalone HTML viewer.
+ * B777FViewer — Phase 3: DB-driven 3D cargo viewer with package placement.
  *
- * Phase 0: Static geometry, no interaction modes.
- * Phase 2: Will become DB-driven (positions + contours from backend).
+ * Fetches aircraft geometry + ULD positions from the backend on mount.
+ * Optional loadPlan prop: when provided, renders package boxes inside ULDs.
  *
- * Original source: raw/docs/B777F_Inspection_System.txt
+ * Coordinate conversion: utils/aircraftCoords.js (ADR-0012).
+ *
+ * Architecture:
+ *   B777FViewer           — data fetching + loading/error states
+ *   └─ AircraftScene      — receives aircraft + positions + optional loadPlan
+ *      ├─ FuselageHull    — wireframe fuselage cylinder
+ *      ├─ CargoLayout     — maps positions → ULD groups
+ *      │   ├─ UldShell    — extruded contour (semi-transparent when packages visible)
+ *      │   └─ PackageBoxes — coloured package boxes (only when loadPlan provided)
+ *      └─ OrbitControls
  */
 
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
-import { CONTOURS, PLANE } from '../../utils/b777fContours';
+import { fetchAircraftConfig } from '../../services/api';
+import {
+  parseContourPoints,
+  positionToScene,
+  uldLengthM,
+} from '../../utils/aircraftCoords';
 
-function ContourMesh({ spec, position, mirror = false }) {
-  // Build the extruded geometry from the 2D contour points
-  const geometry = useMemo(() => {
-    const shape = new THREE.Shape();
-    shape.moveTo(spec.points[0][0], spec.points[0][1]);
-    for (let i = 1; i < spec.points.length; i++) {
-      shape.lineTo(spec.points[i][0], spec.points[i][1]);
-    }
-    shape.lineTo(spec.points[0][0], spec.points[0][1]);
+// ── B777F aircraft id in DB (seeded by DataInitializer) ──────────────────────
+const B777F_AIRCRAFT_ID = 1;
 
-    const geom = new THREE.ExtrudeGeometry(shape, {
-      steps: 1,
-      depth: spec.length,
-      bevelEnabled: false,
-    });
-    geom.center();
-    return geom;
-  }, [spec]);
+// ── PackageBoxes ──────────────────────────────────────────────────────────────
 
-  // Edge lines (subtle outline)
-  const edgesGeom = useMemo(() => new THREE.EdgesGeometry(geometry), [geometry]);
-
-  const scale = mirror ? [-1, 1, 1] : [1, 1, 1];
-
-  return (
-    <group position={position} scale={scale}>
-      <mesh geometry={geometry}>
-        <meshStandardMaterial
-          color={spec.color}
-          metalness={0.15}
-          roughness={0.55}
-          transparent
-          opacity={0.65}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
-      <lineSegments geometry={edgesGeom}>
-        <lineBasicMaterial color={0x495057} transparent opacity={0.25} />
-      </lineSegments>
-    </group>
-  );
+/**
+ * Hash a destination code string to a stable hex colour integer.
+ * Used to colour-code packages by destination in the 3D viewer.
+ */
+function destColor(dest) {
+  if (!dest) return 0x888888;
+  let h = 0;
+  for (let i = 0; i < dest.length; i++) h = (Math.imul(31, h) + dest.charCodeAt(i)) | 0;
+  return Math.abs(h) % 0xffffff;
 }
 
 /**
- * Build the static cargo layout — mirrors the original buildPlane() function.
- * Phase 2 replaces this with backend-driven position data.
+ * Renders all package placements inside a single ULD assignment as
+ * small semi-transparent boxes, colour-coded by destination.
+ *
+ * Package position in ULD-local coordinates (mm, origin bottom-front-left):
+ *   Three.js offset from ULD centre = (pkg_center - bbox_center) / 1000
+ *
+ * @param {object} assignment  - UldAssignmentDto
+ * @param {boolean} mirror     - true for port-side ULDs
  */
-function CargoLayout() {
-  const placements = useMemo(() => {
-    const items = [];
-    let z = 25;
+function PackageBoxes({ assignment, mirror }) {
+  const { bboxWMm, bboxHMm, lengthMm, placements } = assignment;
 
-    items.push({ key: 'A', x: 1.3, z, mirror: false });
-    items.push({ key: 'A', x: 1.3, z, mirror: true });
-    z -= 3.4;
-    items.push({ key: 'A', x: 1.3, z, mirror: false });
-    items.push({ key: 'A', x: 1.3, z, mirror: true });
-    z -= 3.4;
+  return (
+    <>
+      {placements.map((p) => {
+        // Centre of package in ULD-local mm
+        const cx = p.xMm + p.appliedWidthMm  / 2;
+        const cy = p.yMm + p.appliedHeightMm / 2;
+        const cz = p.zMm + p.appliedDepthMm  / 2;
 
-    for (let i = 0; i < 3; i++) {
-      items.push({ key: 'M', x: 1.35, z, mirror: false });
-      items.push({ key: 'M', x: 1.35, z, mirror: true });
-      z -= 3.4;
-    }
+        // Offset from ULD bounding-box centre (the geom.center() anchor)
+        const ox = ((cx - bboxWMm  / 2) / 1000) * (mirror ? -1 : 1);
+        const oy =  (cy - bboxHMm  / 2) / 1000;
+        const oz =  (cz - lengthMm / 2) / 1000;
 
-    items.push({ key: 'R_High', x: 1.35, z: z - 1, mirror: false });
-    items.push({ key: 'R_High', x: 1.35, z: z - 1, mirror: true });
-    z -= 5.2;
+        const w = p.appliedWidthMm  / 1000;
+        const h = p.appliedHeightMm / 1000;
+        const d = p.appliedDepthMm  / 1000;
 
-    items.push({ key: 'R_Low', x: 1.35, z: z - 1, mirror: false });
-    items.push({ key: 'R_Low', x: 1.35, z: z - 1, mirror: true });
-    z -= 5.2;
+        const color = destColor(p.destinationCode);
 
-    items.push({ key: 'G', x: 0, z: z - 1.5, mirror: false });
-    z -= 6.5;
+        return (
+          <mesh key={p.id} position={[ox, oy, oz]}>
+            <boxGeometry args={[w - 0.01, h - 0.01, d - 0.01]} />
+            <meshStandardMaterial
+              color={color}
+              metalness={0.0}
+              roughness={0.8}
+              transparent
+              opacity={0.85}
+            />
+          </mesh>
+        );
+      })}
+    </>
+  );
+}
 
-    items.push({ key: 'R_High', x: 1.35, z: z - 1, mirror: false });
-    items.push({ key: 'R_High', x: 1.35, z: z - 1, mirror: true });
+// ── CargoLayout ───────────────────────────────────────────────────────────────
 
-    return items;
-  }, []);
-
-  const ld3s = useMemo(() => {
-    const items = [];
-    let lz = 22;
-    for (let i = 0; i < 15; i++) {
-      if (lz < 5 && lz > -5) {
-        lz -= 1.8;
-        continue;
-      }
-      items.push({ x: 1.1, z: lz, mirror: false });
-      items.push({ x: 1.1, z: lz, mirror: true });
-      lz -= 1.8;
-    }
-    return items;
-  }, []);
+/**
+ * Renders all positions returned by the API.
+ * When a loadPlan is provided, also renders package boxes inside each ULD.
+ *
+ * Mirror logic: positions with negative lateralOffsetMm are on the port side.
+ * The UldMesh mirrors the geometry so the contour faces inward correctly.
+ */
+function CargoLayout({ aircraft, positions, loadPlan, selectedPositionCode, onUldClick }) {
+  // Build a map of positionCode → assignment for fast lookup
+  const assignmentMap = useMemo(() => {
+    if (!loadPlan) return {};
+    return Object.fromEntries(loadPlan.assignments.map(a => [a.positionCode, a]));
+  }, [loadPlan]);
 
   return (
     <group>
-      {placements.map((p, idx) => {
-        const spec = CONTOURS[p.key];
-        let maxY = 0;
-        spec.points.forEach((pt) => (maxY = Math.max(maxY, pt[1])));
-        const y = PLANE.floorMain + maxY / 2;
-        const x = p.mirror ? -p.x : p.x;
-        return (
-          <ContourMesh
-            key={`${p.key}-${idx}`}
-            spec={spec}
-            position={[x, y, p.z]}
-            mirror={p.mirror}
-          />
-        );
-      })}
+      {positions.map((pos) => {
+        const sceneCoords  = positionToScene(pos, aircraft);
+        const mirror       = pos.lateralOffsetMm < 0;
+        const assignment   = assignmentMap[pos.positionCode];
+        const isSelected   = selectedPositionCode === pos.positionCode;
 
-      {ld3s.map((p, idx) => {
-        const spec = CONTOURS.LD3;
-        let maxY = 0;
-        spec.points.forEach((pt) => (maxY = Math.max(maxY, pt[1])));
-        const y = PLANE.floorLower + maxY / 2;
-        const x = p.mirror ? -p.x : p.x;
         return (
-          <ContourMesh
-            key={`ld3-${idx}`}
-            spec={spec}
-            position={[x, y, p.z]}
-            mirror={p.mirror}
-          />
+          <group
+            key={pos.id}
+            position={[sceneCoords.x, sceneCoords.y, sceneCoords.z]}
+            scale={mirror ? [-1, 1, 1] : [1, 1, 1]}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onUldClick) onUldClick(pos.positionCode, assignment || null);
+            }}
+          >
+            {/* ULD contour shell — brighter when selected */}
+            <UldShell uldType={pos.uldType} selected={isSelected} />
+            {/* Package boxes (only when load plan loaded) */}
+            {assignment && assignment.placements.length > 0 && (
+              <PackageBoxes assignment={assignment} mirror={false} />
+            )}
+          </group>
         );
       })}
     </group>
@@ -148,13 +140,56 @@ function CargoLayout() {
 }
 
 /**
- * Fuselage hull as a wireframe cylinder — visual reference for the
- * IATA L-91 max contour envelope.
+ * ULD contour shell — extracted from UldMesh so the group/scale logic
+ * can be handled by CargoLayout directly.
  */
-function FuselageHull() {
+function UldShell({ uldType, selected = false }) {
+  const pointsM = useMemo(
+    () => parseContourPoints(uldType.pointsJson),
+    [uldType.pointsJson],
+  );
+  const lengthM = uldLengthM(uldType.lengthMm);
+
+  const geometry = useMemo(() => {
+    const shape = new THREE.Shape();
+    shape.moveTo(pointsM[0][0], pointsM[0][1]);
+    for (let i = 1; i < pointsM.length; i++) shape.lineTo(pointsM[i][0], pointsM[i][1]);
+    shape.lineTo(pointsM[0][0], pointsM[0][1]);
+    const geom = new THREE.ExtrudeGeometry(shape, { steps: 1, depth: lengthM, bevelEnabled: false });
+    geom.center();
+    return geom;
+  }, [pointsM, lengthM]);
+
+  const edgesGeom = useMemo(() => new THREE.EdgesGeometry(geometry), [geometry]);
+  const colorInt  = useMemo(() => parseInt(uldType.colorHex.replace('#', ''), 16), [uldType.colorHex]);
+
+  return (
+    <>
+      <mesh geometry={geometry}>
+        <meshStandardMaterial
+          color={colorInt}
+          metalness={0.15}
+          roughness={0.55}
+          transparent
+          opacity={selected ? 0.55 : 0.25}
+          side={THREE.DoubleSide}
+          emissive={selected ? colorInt : 0x000000}
+          emissiveIntensity={selected ? 0.3 : 0}
+        />
+      </mesh>
+      <lineSegments geometry={edgesGeom}>
+        <lineBasicMaterial color={selected ? colorInt : 0x495057} transparent opacity={selected ? 0.9 : 0.25} />
+      </lineSegments>
+    </>
+  );
+}
+
+// ── FuselageHull ──────────────────────────────────────────────────────────────
+
+function FuselageHull({ fuselageRadiusM }) {
   return (
     <mesh rotation={[Math.PI / 2, 0, 0]}>
-      <cylinderGeometry args={[PLANE.radius, PLANE.radius, 60, 64, 1, true]} />
+      <cylinderGeometry args={[fuselageRadiusM, fuselageRadiusM, 60, 64, 1, true]} />
       <meshBasicMaterial
         color={0xadb5bd}
         wireframe
@@ -166,30 +201,117 @@ function FuselageHull() {
   );
 }
 
-export default function B777FViewer() {
+// ── AircraftScene ─────────────────────────────────────────────────────────────
+
+function AircraftScene({ aircraft, positions, loadPlan, selectedPositionCode, onUldClick }) {
+  const fuselageRadiusM = aircraft.fuselageRadiusMm * 0.001;
+  const floorMainDeckM  = aircraft.floorMainDeckMm  * 0.001;
+
   return (
-    <Canvas
-      camera={{ position: [12, 6, 18], fov: 45, near: 0.1, far: 200 }}
-      style={{ background: '#F8F9FA', width: '100%', height: '100%' }}
-      gl={{ antialias: true, alpha: true }}
-    >
+    <>
       <ambientLight intensity={0.7} />
-      <directionalLight position={[10, 15, 10]} intensity={0.9} />
+      <directionalLight position={[10, 15, 10]}  intensity={0.9} />
       <directionalLight position={[-10, 8, -10]} intensity={0.4} />
       <pointLight position={[0, 8, 0]} color={0xffffff} intensity={0.3} distance={60} />
 
       <Grid
-        position={[0, PLANE.floorMain - 0.02, -2]}
+        position={[0, floorMainDeckM - 0.02, -2]}
         args={[5, 60]}
         cellColor={0xdee2e6}
         sectionColor={0xadb5bd}
         scale={[1, 1, 12]}
       />
 
-      <FuselageHull />
-      <CargoLayout />
+      <FuselageHull fuselageRadiusM={fuselageRadiusM} />
+      <CargoLayout
+        aircraft={aircraft}
+        positions={positions}
+        loadPlan={loadPlan}
+        selectedPositionCode={selectedPositionCode}
+        onUldClick={onUldClick}
+      />
 
       <OrbitControls enableDamping dampingFactor={0.08} />
+    </>
+  );
+}
+
+// ── B777FViewer (root) ────────────────────────────────────────────────────────
+
+export default function B777FViewer({ loadPlan = null, onUldClick = null, selectedPositionCode = null }) {
+  const [aircraft,  setAircraft]  = useState(null);
+  const [positions, setPositions] = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState(null);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchAircraftConfig(B777F_AIRCRAFT_ID)
+      .then(({ aircraft, positions }) => {
+        setAircraft(aircraft);
+        setPositions(positions);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error('B777FViewer: failed to load aircraft config', err);
+        setError('Could not load aircraft configuration. Is the backend running?');
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#F8F9FA',
+          color: '#6c757d',
+          fontSize: 14,
+        }}
+      >
+        Loading aircraft configuration…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#F8F9FA',
+          color: '#dc3545',
+          fontSize: 14,
+          padding: 24,
+          textAlign: 'center',
+        }}
+      >
+        {error}
+      </div>
+    );
+  }
+
+  return (
+    <Canvas
+      camera={{ position: [12, 6, 18], fov: 45, near: 0.1, far: 200 }}
+      style={{ background: '#F8F9FA', width: '100%', height: '100%' }}
+      gl={{ antialias: true, alpha: true }}
+    >
+      <AircraftScene
+        aircraft={aircraft}
+        positions={positions}
+        loadPlan={loadPlan}
+        selectedPositionCode={selectedPositionCode}
+        onUldClick={onUldClick}
+      />
     </Canvas>
   );
 }
