@@ -17,7 +17,7 @@
  */
 
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Grid } from '@react-three/drei';
+import { OrbitControls, Grid, Html } from '@react-three/drei';
 import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { fetchAircraftConfig } from '../../services/api';
@@ -184,6 +184,79 @@ function UldShell({ uldType, selected = false }) {
   );
 }
 
+// ── CargoDoorMarker ─────────────────────────────────────────────────────────────
+
+/**
+ * Main deck cargo door marker.
+ *
+ * The real B777F main deck cargo door is on the PORT (left) fuselage, AFT of the
+ * wing (≈ 3.7 m wide × 3.05 m high). Cargo enters here and is driven forward
+ * (toward the nose / deeper) by the cargo handling system.
+ *
+ * This is what makes LOFO intuitive:
+ *   • near the door (aft)  → first-stop cargo (offloaded first)
+ *   • deep / forward (nose) → last-stop cargo (offloaded last)
+ *
+ * Door longitudinal position is APPROXIMATE (no millimetre datum available);
+ * it is anchored to the aft-most main-deck position so it lines up with the layout.
+ * Scene axes: X = lateral (− = port/left), Y = vertical, Z = arm (+ = nose).
+ */
+function CargoDoorMarker({ aircraft, positions }) {
+  const radiusM = aircraft.fuselageRadiusMm * 0.001;
+  const floorM  = aircraft.floorMainDeckMm  * 0.001;
+
+  const mainArms = positions
+    .filter((p) => p.deck === 'MAIN')
+    .map((p) => p.armMm * 0.001);
+
+  const DOOR_W = 3.7;   // longitudinal (along Z)
+  const DOOR_H = 3.05;  // vertical (along Y)
+
+  // Door outline only (a clean frame on the hull — never blocks the cargo view)
+  const frame = useMemo(() => {
+    const g = new THREE.BoxGeometry(0.02, DOOR_H, DOOR_W);
+    return new THREE.EdgesGeometry(g);
+  }, []);
+
+  if (mainArms.length === 0) return null;
+
+  const aftZ        = Math.min(...mainArms);   // most-aft main position
+  const doorX       = -radiusM;                // port (left) fuselage wall
+  const doorCenterZ = aftZ + 1.8;              // over the aft cargo zone
+  const doorY       = floorM + DOOR_H / 2;
+
+  const arrowDir    = new THREE.Vector3(0, 0, 1); // toward nose (deeper)
+  const arrowOrigin = new THREE.Vector3(doorX, floorM + 0.15, doorCenterZ);
+
+  return (
+    <group>
+      {/* Door frame on port fuselage (outline only) */}
+      <lineSegments geometry={frame} position={[doorX, doorY, doorCenterZ]}>
+        <lineBasicMaterial color={0xe8590c} />
+      </lineSegments>
+
+      {/* Short loading-direction arrow at floor level, toward nose */}
+      <arrowHelper args={[arrowDir, arrowOrigin, 3, 0xe8590c, 0.8, 0.5]} />
+
+      {/* Single compact label, floated above the hull so it never overlaps cargo */}
+      <Html
+        position={[doorX, floorM + DOOR_H + 1.3, doorCenterZ]}
+        center
+        distanceFactor={14}
+        zIndexRange={[10, 0]}
+      >
+        <div style={{
+          background: 'rgba(232,89,12,0.95)', color: '#fff', fontWeight: 600,
+          fontSize: 11, padding: '3px 9px', borderRadius: 4, whiteSpace: 'nowrap',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+        }}>
+          ✈ Cargo door (aft·port) → load forward
+        </div>
+      </Html>
+    </group>
+  );
+}
+
 // ── FuselageHull ──────────────────────────────────────────────────────────────
 
 function FuselageHull({ fuselageRadiusM }) {
@@ -223,6 +296,7 @@ function AircraftScene({ aircraft, positions, loadPlan, selectedPositionCode, on
       />
 
       <FuselageHull fuselageRadiusM={fuselageRadiusM} />
+      <CargoDoorMarker aircraft={aircraft} positions={positions} />
       <CargoLayout
         aircraft={aircraft}
         positions={positions}

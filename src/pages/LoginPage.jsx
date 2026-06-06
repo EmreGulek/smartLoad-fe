@@ -182,6 +182,10 @@ export default function LoginPage() {
                         required
                         autoComplete="current-password"
                       />
+                      <Form.Text className="text-muted">
+                        Use the password from your registration. New here? Sign Up first,
+                        then activate your account with the 6-digit code under “Verify”.
+                      </Form.Text>
                     </Form.Group>
 
                     <Button
@@ -237,6 +241,9 @@ export default function LoginPage() {
                         minLength={8}
                         autoComplete="new-password"
                       />
+                      <Form.Text className="text-muted">
+                        At least 8 characters.
+                      </Form.Text>
                     </Form.Group>
 
                     <Button

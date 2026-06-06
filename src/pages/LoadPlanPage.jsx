@@ -147,7 +147,7 @@ export default function LoadPlanPage() {
             <thead>
               <tr>
                 <th>#</th><th>Status</th><th>Algorithm</th>
-                <th>Placed</th><th>Utilisation</th><th>Created</th><th></th>
+                <th>Placed</th><th>Utilisation</th><th>CG %MAC</th><th>Created</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -158,6 +158,13 @@ export default function LoadPlanPage() {
                   <td><code className="small">{p.algorithm}</code></td>
                   <td>{p.placedPackages}/{p.totalPackages}</td>
                   <td>{p.utilizationPct?.toFixed(1)}%</td>
+                  <td>
+                    {p.cgStatus
+                      ? <Badge bg={p.cgStatus === 'GREEN' ? 'success' : p.cgStatus.startsWith('RED') ? 'danger' : 'warning'}>
+                          {p.cgMacPct?.toFixed(1)}%
+                        </Badge>
+                      : <span className="text-muted">—</span>}
+                  </td>
                   <td className="text-muted small">{new Date(p.createdAt).toLocaleString()}</td>
                   <td>
                     <Button size="sm" variant="outline-primary" onClick={() => handleLoadPlan(p.id)}>
