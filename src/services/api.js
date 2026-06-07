@@ -73,8 +73,8 @@ export async function fetchAircraftConfig(aircraftId) {
  * @param {string[]} flightStops  ordered destination codes, first stop first.
  *                                E.g. ["IST","FRA","JFK"]. Empty/null = LOFO not computed.
  */
-export async function optimizeLoadPlan(manifestId, aircraftId = 1, flightStops = []) {
-  const { data } = await api.post('/load-plans/optimize', { manifestId, aircraftId, flightStops });
+export async function optimizeLoadPlan(manifestId, aircraftId = 1, flightStops = [], algorithm = 'V2') {
+  const { data } = await api.post('/load-plans/optimize', { manifestId, aircraftId, flightStops, algorithm });
   return data;
 }
 
@@ -111,4 +111,15 @@ export function loadSheetPdfUrl(loadPlanId) {
 /** Open a PDF report in a new browser tab. */
 export function openPdfReport(url) {
   window.open(url, '_blank', 'noopener');
+}
+
+// ── Phase 6: Algorithm benchmark ─────────────────────────────────────────────
+
+/**
+ * Run the algorithm benchmark (FFD vs EP-V1 vs EP-V2) on a manifest.
+ * Returns an array of BenchmarkRowDto (one per algorithm).
+ */
+export async function runBenchmark(manifestId, aircraftId = 1, flightStops = []) {
+  const { data } = await api.post('/benchmark/run', { manifestId, aircraftId, flightStops });
+  return data;
 }

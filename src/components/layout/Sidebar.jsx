@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { Nav } from 'react-bootstrap';
 import { BsGrid3X3Gap } from 'react-icons/bs';
 import {
+  FaBalanceScale,
   FaClipboardList,
   FaCog,
   FaFileDownload,
@@ -29,6 +30,7 @@ export default function Sidebar() {
         <SidebarLink to="/cargo-importer" Icon={FaFileDownload} label="Cargo Importer" />
         <SidebarLink to="/manifests" Icon={FaTable} label="Manifests" />
         <SidebarLink to="/load-plan" Icon={BsGrid3X3Gap} label="Load Plan" />
+        <SidebarLink to="/benchmark" Icon={FaBalanceScale} label="Benchmark" />
         <SidebarPlaceholder Icon={FaTachometerAlt} label="CG Validation" phase="Phase 4" />
       </SidebarSection>
 

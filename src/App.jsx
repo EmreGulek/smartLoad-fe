@@ -8,6 +8,7 @@ import ManifestListPage from './pages/ManifestListPage';
 import ManifestDetailPage from './pages/ManifestDetailPage';
 import ViewerPage from './pages/ViewerPage';
 import LoadPlanPage from './pages/LoadPlanPage';
+import BenchmarkPage from './pages/BenchmarkPage';
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="/manifests/:id" element={<ManifestDetailPage />} />
           <Route path="/viewer" element={<ViewerPage />} />
           <Route path="/load-plan" element={<LoadPlanPage />} />
+          <Route path="/benchmark" element={<BenchmarkPage />} />
         </Route>
       </Route>
     </Routes>

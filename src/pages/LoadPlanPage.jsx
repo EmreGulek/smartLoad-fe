@@ -30,6 +30,7 @@ export default function LoadPlanPage() {
   const [manifests,    setManifests]    = useState([]);
   const [selectedMid,  setSelectedMid]  = useState('');
   const [flightStops,  setFlightStops]  = useState('');   // e.g. "IST,FRA,JFK"
+  const [algorithm,    setAlgorithm]    = useState('V2'); // FFD | V1 | V2
   const [running,      setRunning]      = useState(false);
   const [loadPlan,     setLoadPlan]     = useState(null);
   const [pastPlans,    setPastPlans]    = useState([]);
@@ -57,7 +58,7 @@ export default function LoadPlanPage() {
         .split(',')
         .map(s => s.trim().toUpperCase())
         .filter(Boolean);
-      const { loadPlanId } = await optimizeLoadPlan(selectedMid, 1, stops);
+      const { loadPlanId } = await optimizeLoadPlan(selectedMid, 1, stops, algorithm);
       const plan = await fetchLoadPlan(loadPlanId);
       setLoadPlan(plan);
       // Refresh past plans list
@@ -90,7 +91,7 @@ export default function LoadPlanPage() {
       <Card className="mb-3">
         <Card.Body>
           <Row className="align-items-end g-3">
-            <Col md={5}>
+            <Col md={4}>
               <Form.Label className="fw-semibold">Manifest</Form.Label>
               <Form.Select
                 value={selectedMid}
@@ -107,11 +108,11 @@ export default function LoadPlanPage() {
                 ))}
               </Form.Select>
             </Col>
-            <Col md={4}>
+            <Col md={3}>
               <Form.Label className="fw-semibold d-flex align-items-center gap-1">
                 Flight Stops
                 <span className="text-muted fw-normal" style={{ fontSize: 12 }}>
-                  &nbsp;— LOFO order (first stop first)
+                  &nbsp;— LOFO
                 </span>
               </Form.Label>
               <Form.Control
@@ -121,6 +122,18 @@ export default function LoadPlanPage() {
                 onChange={e => setFlightStops(e.target.value)}
                 disabled={running}
               />
+            </Col>
+            <Col md={2}>
+              <Form.Label className="fw-semibold">Algorithm</Form.Label>
+              <Form.Select
+                value={algorithm}
+                onChange={e => setAlgorithm(e.target.value)}
+                disabled={running}
+              >
+                <option value="V2">EP V2 (CG-aware)</option>
+                <option value="V1">EP V1 (CG-blind)</option>
+                <option value="FFD">FFD (naive)</option>
+              </Form.Select>
             </Col>
             <Col md="auto">
               <Button
